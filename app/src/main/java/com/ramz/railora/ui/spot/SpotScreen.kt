@@ -2,7 +2,6 @@ package com.ramz.railora.ui.spot
 
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -69,7 +68,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -80,7 +78,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.ramz.railora.R
 import com.ramz.railora.domain.PassingStation
 import com.ramz.railora.domain.Placement
 import com.ramz.railora.domain.TrainPlacement
@@ -88,6 +85,7 @@ import com.ramz.railora.domain.stationsBetween
 import com.ramz.railora.domain.model.IST
 import com.ramz.railora.domain.model.LiveStop
 import com.ramz.railora.domain.model.LiveTrainStatus
+import com.ramz.railora.domain.model.PositionEvent
 import com.ramz.railora.domain.model.RunState
 import com.ramz.railora.domain.model.TrainRef
 import com.ramz.railora.domain.model.TrainRoute
@@ -523,6 +521,7 @@ private fun StopsCard(status: LiveTrainStatus, route: TrainRoute?, placement: Pl
                 val expanded = stop.station.code in open
                 // The train is in this segment: it has left this stop and not reached the next.
                 val trainHere = stop.passed && status.stops.getOrNull(index + 1)?.passed == false && status.state == RunState.RUNNING
+                val train = if (!trainHere || expanded) null else trainOnSegment(status, index, routeKm, placement.kmNow)
                 StopRow(
                     stop = stop,
                     isNext = stop == placement.nextStop,
@@ -531,7 +530,7 @@ private fun StopsCard(status: LiveTrainStatus, route: TrainRoute?, placement: Pl
                     isLast = i == shownIndices.lastIndex && !expanded,
                     betweenCount = between.size,
                     expanded = expanded,
-                    trainAfter = trainHere && !expanded,
+                    train = train,
                     onClick = if (between.isEmpty()) null else {
                         { open = if (expanded) open - stop.station.code else open + stop.station.code }
                     },
@@ -558,10 +557,10 @@ private fun StopRow(
     isLast: Boolean,
     betweenCount: Int,
     expanded: Boolean,
-    trainAfter: Boolean,
+    /** The train, when it's on the track after this stop (or standing at it). */
+    train: TrainOnTrack?,
     onClick: (() -> Unit)?,
 ) {
-    val lineColor = MaterialTheme.colorScheme.outlineVariant
     val dotColor = when {
         stop.passed -> Green
         isNext -> Green
@@ -574,21 +573,22 @@ private fun StopRow(
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(start = 20.dp, end = 20.dp)
     ) {
-        // Timeline: line through, dot on this stop.
+        // Timeline: railway track through, station dot on this stop.
         Box(
             Modifier
-                .width(24.dp)
+                .width(28.dp)
                 .fillMaxHeight(),
             contentAlignment = Alignment.TopCenter,
         ) {
-            Box(
-                Modifier
-                    .padding(top = if (isFirst) 22.dp else 0.dp)
-                    .width(2.dp)
-                    .fillMaxHeight(if (isLast) 0.3f else 1f)
-                    .background(if (stop.passed) Green else lineColor)
+            RailTrack(
+                Modifier.fillMaxSize(),
+                passed = stop.passed,
+                top = if (isFirst) DotCenter else 0.dp,
+                end = if (isLast) DotCenter else null,
+                train = train,
             )
-            Box(
+            // Standing at this station: the train covers the dot.
+            if (train?.at != 0f) Box(
                 Modifier
                     .padding(top = 16.dp)
                     .size(18.dp)
@@ -646,11 +646,6 @@ private fun StopRow(
                         tint = ActionBlue,
                         modifier = Modifier.size(18.dp),
                     )
-                    if (trainAfter) {
-                        Spacer(Modifier.width(8.dp))
-                        Image(painterResource(R.drawable.map_train), contentDescription = "Train is here", modifier = Modifier.height(16.dp))
-                        Text(" train is here", fontSize = 12.sp, color = Green)
-                    }
                 }
             }
         }
@@ -675,17 +670,17 @@ private fun PassingRow(p: PassingStation, kmAway: Double?) {
             .padding(start = 20.dp, end = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(24.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
-            Box(Modifier.width(2.dp).fillMaxHeight().background(if (p.passed) Green else MaterialTheme.colorScheme.outlineVariant))
+        Box(Modifier.width(28.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            RailTrack(Modifier.fillMaxSize(), passed = p.passed)
             Box(
                 Modifier
                     .size(9.dp)
                     .clip(CircleShape)
-                    .background(if (p.passed) Green else MaterialTheme.colorScheme.surface)
-                    .border(1.5.dp, if (p.passed) Green else Color(0xFF9CA3AF), CircleShape)
+                    .background(if (p.passed) Color(0xFF546E7A) else MaterialTheme.colorScheme.surface)
+                    .border(1.5.dp, if (p.passed) Color(0xFF546E7A) else Color(0xFF9CA3AF), CircleShape)
             )
         }
-        Spacer(Modifier.width(24.dp))
+        Spacer(Modifier.width(20.dp))
         Column(Modifier.weight(1f).padding(vertical = 7.dp)) {
             Text(
                 "${p.point.station.name} (${p.point.station.code})",
@@ -712,13 +707,36 @@ private fun TrainHereRow() {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(start = 14.dp, end = 20.dp, top = 2.dp, bottom = 2.dp),
+            .height(56.dp)
+            .padding(start = 20.dp, end = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Image(painterResource(R.drawable.map_train), contentDescription = null, modifier = Modifier.width(40.dp))
-        Spacer(Modifier.width(8.dp))
+        Box(Modifier.width(28.dp).fillMaxHeight()) {
+            RailTrack(Modifier.fillMaxSize(), passed = false, train = TrainOnTrack(at = 0.5f, moving = true))
+        }
+        Spacer(Modifier.width(20.dp))
         Text("Train is here", fontSize = 13.sp, color = Green, fontWeight = FontWeight.SemiBold)
     }
+}
+
+/** Centre of a stop's dot from the top of its row. */
+private val DotCenter = 25.dp
+
+/**
+ * The train on the track after stop [index]: standing on the dot if it's at that station,
+ * otherwise part-way along by km towards the next stop (kept clear of the dot).
+ */
+private fun trainOnSegment(status: LiveTrainStatus, index: Int, routeKm: Map<String, Double>, kmNow: Double?): TrainOnTrack {
+    val stop = status.stops[index]
+    val pos = status.position
+    if (pos?.event == PositionEvent.ARRIVED && pos.station.code == stop.station.code) {
+        return TrainOnTrack(at = 0f, moving = false, from = DotCenter)
+    }
+    val next = status.stops[index + 1]
+    val kmA = stop.kmFromOrigin ?: routeKm[stop.station.code]
+    val kmB = next.kmFromOrigin ?: routeKm[next.station.code]
+    val progress = if (kmA != null && kmB != null && kmNow != null && kmB > kmA) ((kmNow - kmA) / (kmB - kmA)).toFloat() else 0.5f
+    return TrainOnTrack(at = progress.coerceIn(0.3f, 0.9f), moving = true, from = DotCenter)
 }
 
 /** "Platform 3 • 9:58 PM (Exp)" — arrival, or departure at the origin. */
