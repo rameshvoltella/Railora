@@ -1,12 +1,20 @@
 package com.ramz.railora
 
 import android.graphics.Color as AndroidColor
+import android.app.UiModeManager
+import android.os.Build
 import android.os.Bundle
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import com.ramz.railora.data.RailData
+import com.ramz.railora.data.settings.ThemeMode
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -34,6 +42,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.ramz.railora.ui.between.TrainsBetweenScreen
 import com.ramz.railora.ui.home.HomeAction
 import com.ramz.railora.ui.home.HomeScreen
+import com.ramz.railora.ui.pnr.PnrScreen
 import com.ramz.railora.ui.settings.SettingsScreen
 import com.ramz.railora.ui.spot.SpotScreen
 import com.ramz.railora.ui.theme.RailoraTheme
@@ -48,14 +57,44 @@ enum class Tab(val label: String, val icon: ImageVector) {
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
-        // The home picture runs under the status bar, so its icons stay light.
-        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT))
         setContent {
-            RailoraTheme {
+            val mode by RailData.settings.themeMode.collectAsState()
+            val dark = when (mode) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            LaunchedEffect(mode, dark) {
+                // Every screen's header runs under the status bar, so its icons stay light;
+                // the navigation bar's icons follow the app's light/dark choice.
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
+                    navigationBarStyle = if (dark) SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+                    else SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
+                )
+                applyNightModeToSystem(mode)
+            }
+            RailoraTheme(darkTheme = dark) {
                 RailoraApp()
             }
         }
+    }
+
+    /**
+     * Android 12+: tell the system the app's choice too, so the splash screen (drawn before
+     * the app runs) uses the same light or dark background next time.
+     */
+    private fun applyNightModeToSystem(mode: ThemeMode) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        getSystemService(UiModeManager::class.java)?.setApplicationNightMode(
+            when (mode) {
+                ThemeMode.SYSTEM -> UiModeManager.MODE_NIGHT_AUTO
+                ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
+                ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
+            }
+        )
     }
 }
 
@@ -103,6 +142,7 @@ fun RailoraApp() {
             })
             Tab.SPOT -> SpotScreen(content, request = spotRequest, onRequestHandled = { spotRequest = null })
             Tab.SETTINGS -> SettingsScreen(content)
+            Tab.PNR -> PnrScreen(content)
             else -> ComingSoon(tab.label, Modifier.padding(inner))
         }
     }

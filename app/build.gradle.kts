@@ -52,6 +52,7 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.osmdroid)
     implementation(libs.coil.compose)
+    implementation(libs.androidx.core.splashscreen)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     testImplementation(libs.junit)
     testImplementation(libs.org.json)

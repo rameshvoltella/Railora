@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Splash icon. Android shows it in a 288dp box and crops to a 192dp circle, so the rounded
+    square (corner radius 20%) is kept to ~150dp in the middle to show whole.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/splash_icon"
+    android:inset="24%" />

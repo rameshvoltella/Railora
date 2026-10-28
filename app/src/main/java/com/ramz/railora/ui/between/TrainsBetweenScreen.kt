@@ -128,7 +128,28 @@ fun TrainsBetweenScreen(
             state.error != null -> item {
                 Message {
                     Text(state.error!!, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = vm::search) { Text("Retry") }
+                    if (state.from != null && state.to != null && state.from!!.code != state.to!!.code) {
+                        TextButton(onClick = vm::search) { Text("Retry") }
+                    }
+                }
+            }
+            state.results == null -> item {
+                Message {
+                    Icon(Icons.Rounded.Train, contentDescription = null, tint = ActionBlue, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Find trains between two stations",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Tap From and To to choose your stations by name or code, pick a date, " +
+                            "then tap Search Trains to see every train with its timings and classes.",
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
             state.results != null -> {
@@ -248,7 +269,7 @@ private fun SearchCard(
 }
 
 @Composable
-private fun StationField(label: String, station: Station, dot: Color, onClick: () -> Unit) {
+private fun StationField(label: String, station: Station?, dot: Color, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -267,9 +288,10 @@ private fun StationField(label: String, station: Station, dot: Color, onClick: (
         Column(Modifier.padding(end = 48.dp)) {
             Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
-                station.label,
+                station?.label ?: "Select station",
                 fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = if (station != null) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (station != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

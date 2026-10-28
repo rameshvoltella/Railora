@@ -1,7 +1,11 @@
 package com.ramz.railora.data
 
 import android.content.Context
+import com.ramz.railora.data.confirmtkt.ConfirmTktPnr
 import com.ramz.railora.data.easemytrip.EaseMyTripCoaches
+import com.ramz.railora.data.railmitra.RailMitraPnr
+import com.ramz.railora.data.settings.PnrSite
+import com.ramz.railora.domain.source.PnrSource
 import com.ramz.railora.data.ntes.NtesLiveStatus
 import com.ramz.railora.data.ntes.NtesSession
 import com.ramz.railora.data.ntes.NtesStations
@@ -45,6 +49,15 @@ object RailData {
     val routes: TrainRouteSource get() = railYatri
 
     val coaches: CoachPositionSource by lazy { EaseMyTripCoaches() }
+
+    /** PNR Status: the site the user picked in Settings. */
+    fun pnr(site: PnrSite): PnrSource = when (site) {
+        PnrSite.CONFIRMTKT -> confirmTkt
+        PnrSite.RAILMITRA -> railMitra
+    }
+
+    private val confirmTkt by lazy { ConfirmTktPnr() }
+    private val railMitra by lazy { RailMitraPnr() }
 
     /** Spot My Train: the site the user picked in Settings. */
     fun liveStatus(source: LiveSource): LiveStatusSource = when (source) {

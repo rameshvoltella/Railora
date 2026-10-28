@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -66,7 +67,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -119,6 +123,11 @@ fun SpotScreen(
     var now by remember { mutableStateOf(LocalDateTime.now(IST)) }
     var fullMap by remember { mutableStateOf(false) }
     var showAllStops by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    // Where the current station's row sits inside the stops card (px), once laid out.
+    var currentRowY by remember { mutableStateOf<Int?>(null) }
+    var scrollToStops by remember { mutableStateOf(false) }
 
     LaunchedEffect(request) {
         request?.let { vm.track(it); onRequestHandled() }
@@ -136,10 +145,28 @@ fun SpotScreen(
     val status = state.status
     val placement = remember(status, state.route, now) { status?.let { TrainPlacement.place(it, state.route, now) } }
 
+    // Index of the stops card in the list: header, run picker, status card, map, coaches, stops.
+    val stopsItem = 1 + (if (state.tracked != null) 1 else 0) + 1 +
+        (if (state.route != null) 1 else 0) + (if (state.coaches != null) 1 else 0)
+    // "View Full Route": scroll so the train's current station is near the top, with a little
+    // of the route before it; "Show Upcoming": back to the top of the card.
+    LaunchedEffect(scrollToStops, currentRowY, showAllStops) {
+        if (!scrollToStops) return@LaunchedEffect
+        if (!showAllStops) {
+            listState.animateScrollToItem(stopsItem)
+            scrollToStops = false
+        } else currentRowY?.let { y ->
+            val margin = with(density) { 120.dp.roundToPx() }
+            listState.animateScrollToItem(stopsItem, (y - margin).coerceAtLeast(0))
+            scrollToStops = false
+        }
+    }
+
     LazyColumn(
         modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
+        state = listState,
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -184,7 +211,16 @@ fun SpotScreen(
                 state.coaches?.let { coaches ->
                     item { CoachCard(coaches, Modifier.padding(horizontal = 16.dp)) }
                 }
-                item { StopsCard(status, state.route, placement, showAllStops) { showAllStops = !showAllStops } }
+                item {
+                    StopsCard(
+                        status, state.route, placement, showAllStops,
+                        onCurrentRow = { currentRowY = it },
+                    ) {
+                        showAllStops = !showAllStops
+                        currentRowY = null
+                        scrollToStops = true
+                    }
+                }
                 item { Actions(status, placement, onMap = { fullMap = true }) }
                 item {
                     SourceNote(
@@ -476,9 +512,22 @@ private fun Tile(
 private fun TileDivider() = VerticalDivider(Modifier.fillMaxHeight(), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
 @Composable
-private fun StopsCard(status: LiveTrainStatus, route: TrainRoute?, placement: Placement, showAll: Boolean, onToggle: () -> Unit) {
+private fun StopsCard(
+    status: LiveTrainStatus,
+    route: TrainRoute?,
+    placement: Placement,
+    showAll: Boolean,
+    /** Reports the y (px, within this card) of the train's current station row. */
+    onCurrentRow: (Int) -> Unit,
+    onToggle: () -> Unit,
+) {
     val routeKm = remember(route) { route?.points?.associate { it.station.code to it.kmFromOrigin }.orEmpty() }
     val nextIndex = placement.nextStop?.let { status.stops.indexOf(it) } ?: -1
+    // The station the train is at or last left; before it starts, the origin; after, the end.
+    val currentIndex = when {
+        status.state == RunState.REACHED || nextIndex < 0 -> status.stops.lastIndex
+        else -> (nextIndex - 1).coerceAtLeast(0)
+    }
     // Upcoming: the stop the train last left, so its segment (where the train is) can be opened too.
     val shownIndices = when {
         showAll -> status.stops.indices.toList()
@@ -523,6 +572,9 @@ private fun StopsCard(status: LiveTrainStatus, route: TrainRoute?, placement: Pl
                 val trainHere = stop.passed && status.stops.getOrNull(index + 1)?.passed == false && status.state == RunState.RUNNING
                 val train = if (!trainHere || expanded) null else trainOnSegment(status, index, routeKm, placement.kmNow)
                 StopRow(
+                    modifier = if (index == currentIndex) {
+                        Modifier.onGloballyPositioned { onCurrentRow(it.positionInParent().y.toInt()) }
+                    } else Modifier,
                     stop = stop,
                     isNext = stop == placement.nextStop,
                     kmAway = km?.takeIf { it > 0 },
@@ -550,6 +602,7 @@ private fun StopsCard(status: LiveTrainStatus, route: TrainRoute?, placement: Pl
 
 @Composable
 private fun StopRow(
+    modifier: Modifier = Modifier,
     stop: LiveStop,
     isNext: Boolean,
     kmAway: Double?,
@@ -567,7 +620,7 @@ private fun StopRow(
         else -> Color(0xFF9CA3AF)
     }
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)

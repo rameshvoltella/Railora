@@ -2,6 +2,7 @@ package com.ramz.railora.domain.source
 
 import com.ramz.railora.domain.model.CoachPosition
 import com.ramz.railora.domain.model.LiveTrainStatus
+import com.ramz.railora.domain.model.PnrStatus
 import com.ramz.railora.domain.model.Station
 import com.ramz.railora.domain.model.TrainBetween
 import com.ramz.railora.domain.model.TrainRef
@@ -39,6 +40,11 @@ interface LiveStatusSource {
      * train, or can't show that run. [now] is IST.
      */
     suspend fun liveStatus(trainNumber: String, now: LocalDateTime, startDate: LocalDate? = null): LiveTrainStatus?
+}
+
+interface PnrSource {
+    /** Status of a 10-digit PNR. Throws [com.ramz.railora.domain.model.PnrUnavailable] with a message to show when the site has none. */
+    suspend fun pnrStatus(pnr: String): PnrStatus
 }
 
 interface CoachPositionSource {

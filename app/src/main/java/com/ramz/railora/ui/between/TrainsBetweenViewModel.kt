@@ -3,6 +3,7 @@ package com.ramz.railora.ui.between
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ramz.railora.data.RailData
+import com.ramz.railora.data.settings.AppSettings
 import com.ramz.railora.domain.model.ClassGroup
 import com.ramz.railora.domain.model.Station
 import com.ramz.railora.domain.model.TrainBetween
@@ -26,8 +27,9 @@ enum class ClassFilter(val label: String, val group: ClassGroup?) {
 enum class SortBy(val label: String) { DEPARTURE("Departure"), ARRIVAL("Arrival"), DURATION("Duration") }
 
 data class BetweenState(
-    val from: Station = Station("KTYM", "Kottayam"),
-    val to: Station = Station("ERN", "Ernakulam Town"),
+    /** Empty until the user picks one (or the last search's stations are restored). */
+    val from: Station? = null,
+    val to: Station? = null,
     val date: LocalDate = LocalDate.now(),
     val loading: Boolean = false,
     val error: String? = null,
@@ -53,9 +55,10 @@ data class BetweenState(
 class TrainsBetweenViewModel(
     private val source: TrainsBetweenSource = RailData.trainsBetween,
     private val stationSource: StationSource = RailData.stations,
+    private val settings: AppSettings = RailData.settings,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(BetweenState())
+    private val _state = MutableStateFlow(BetweenState(from = settings.lastFrom, to = settings.lastTo))
     val state: StateFlow<BetweenState> = _state
 
     private val _stations = MutableStateFlow<List<Station>>(emptyList())
@@ -65,12 +68,13 @@ class TrainsBetweenViewModel(
     private var searchJob: Job? = null
 
     init {
-        search()
+        // Search straight away only when the last search's stations were restored.
+        if (_state.value.from != null && _state.value.to != null) search()
         viewModelScope.launch { runCatching { stationSource.allStations() }.onSuccess { _stations.value = it } }
     }
 
-    fun setFrom(station: Station) = _state.update { it.copy(from = station) }
-    fun setTo(station: Station) = _state.update { it.copy(to = station) }
+    fun setFrom(station: Station) = _state.update { it.copy(from = station, error = null) }
+    fun setTo(station: Station) = _state.update { it.copy(to = station, error = null) }
     fun swap() = _state.update { it.copy(from = it.to, to = it.from) }
     fun setDate(date: LocalDate) = _state.update { it.copy(date = date) }
     fun setFilter(filter: ClassFilter) = _state.update { it.copy(filter = filter) }
@@ -78,11 +82,25 @@ class TrainsBetweenViewModel(
 
     fun search() {
         val s = _state.value
+        val from = s.from
+        val to = s.to
+        if (from == null || to == null) {
+            _state.update {
+                it.copy(error = if (from == null) "Choose the station you're starting from." else "Choose the station you're going to.")
+            }
+            return
+        }
+        if (from.code == to.code) {
+            _state.update { it.copy(error = "From and To are the same station. Choose two different stations.") }
+            return
+        }
+        settings.lastFrom = from
+        settings.lastTo = to
         searchJob?.cancel()
         _state.update { it.copy(loading = true, error = null) }
         searchJob = viewModelScope.launch {
             try {
-                val trains = source.trainsBetween(s.from.code, s.to.code, s.date)
+                val trains = source.trainsBetween(from.code, to.code, s.date)
                 _state.update { it.copy(loading = false, results = trains) }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e

@@ -2,4 +2,11 @@
 <resources>
 
     <style name="Theme.Railora" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <!-- Shown while the app starts, on every Android version (androidx core-splashscreen). -->
+    <style name="Theme.Railora.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon_inset</item>
+        <item name="postSplashScreenTheme">@style/Theme.Railora</item>
+    </style>
 </resources>
