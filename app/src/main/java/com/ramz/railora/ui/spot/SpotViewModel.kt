@@ -108,14 +108,7 @@ class SpotViewModel(private val settings: AppSettings = RailData.settings) : Vie
         loadJob = viewModelScope.launch {
             val route = async { _state.value.route ?: runCatching { RailData.routes.route(number) }.getOrNull() }
             try {
-                val now = LocalDateTime.now(IST)
-                var answeredBy = source
-                var status = RailData.liveStatus(source).liveStatus(number, now, runDate)
-                // Where is my Train only has its latest run: NTES lists every run, so ask it instead.
-                if (status == null && runDate != null && source != LiveSource.NTES) {
-                    answeredBy = LiveSource.NTES
-                    status = RailData.liveStatus(LiveSource.NTES).liveStatus(number, now, runDate)
-                }
+                val (status, answeredBy) = RailData.liveStatusAnswer(source, number, LocalDateTime.now(IST), runDate)
                 _state.update {
                     it.copy(
                         loading = false,

@@ -1,7 +1,12 @@
 package com.ramz.railora.ui.spot
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -81,11 +87,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ramz.railora.data.RailData
+import com.ramz.railora.data.alerts.ArrivalAlerts
+import com.ramz.railora.domain.ArrivalAlert
 import com.ramz.railora.domain.PassingStation
 import com.ramz.railora.domain.Placement
 import com.ramz.railora.domain.TrainPlacement
-import com.ramz.railora.domain.stationsBetween
 import com.ramz.railora.domain.model.IST
 import com.ramz.railora.domain.model.LiveStop
 import com.ramz.railora.domain.model.LiveTrainStatus
@@ -93,16 +102,17 @@ import com.ramz.railora.domain.model.PositionEvent
 import com.ramz.railora.domain.model.RunState
 import com.ramz.railora.domain.model.TrainRef
 import com.ramz.railora.domain.model.TrainRoute
+import com.ramz.railora.domain.stationsBetween
 import com.ramz.railora.ui.common.ScreenHeader
 import com.ramz.railora.ui.theme.ActionBlue
 import com.ramz.railora.ui.theme.ActionGreen
 import com.ramz.railora.ui.theme.ToolPurple
-import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 private val DateFormat = DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.ENGLISH)
 private val ClockFormat = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
@@ -221,7 +231,13 @@ fun SpotScreen(
                         scrollToStops = true
                     }
                 }
-                item { Actions(status, placement, onMap = { fullMap = true }) }
+                item {
+                    Actions(
+                        status, placement,
+                        runDate = state.runDate ?: status.startDate,
+                        onMap = { fullMap = true },
+                    )
+                }
                 item {
                     SourceNote(
                         when (val by = state.answeredBy ?: state.source) {
@@ -800,24 +816,134 @@ private fun stopLine(stop: LiveStop): String {
 }
 
 @Composable
-private fun Actions(status: LiveTrainStatus, placement: Placement, onMap: () -> Unit) {
+private fun Actions(status: LiveTrainStatus, placement: Placement, runDate: LocalDate?, onMap: () -> Unit) {
     val context = LocalContext.current
-    Row(
-        Modifier
-            .padding(horizontal = 16.dp)
-            .fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Action("View on Map", Icons.Rounded.Map, ActionBlue, Modifier.weight(1f), onMap)
-        Action("Set Alert", Icons.Rounded.NotificationsActive, ToolPurple, Modifier.weight(1f)) {
-            Toast.makeText(context, "Arrival alerts are coming soon", Toast.LENGTH_SHORT).show()
-        }
-        Action("Share", Icons.Rounded.Share, ActionGreen, Modifier.weight(1f)) {
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, shareText(status, placement))
+    val alerts by RailData.alerts.alerts.collectAsState()
+    val mine = alerts.filter { it.trainNumber == status.number && (it.startDate == null || it.startDate == runDate) }
+    var picking by remember { mutableStateOf(false) }
+    var waiting by remember { mutableStateOf<ArrivalAlert?>(null) }
+    fun begin(alert: ArrivalAlert) {
+        ArrivalAlerts.start(context, alert)
+        Toast.makeText(context, "We'll tell you when it's about to reach ${alert.station.name}", Toast.LENGTH_LONG).show()
+    }
+    val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val alert = waiting ?: return@rememberLauncherForActivityResult
+        waiting = null
+        if (granted) begin(alert)
+        else Toast.makeText(context, "Allow notifications for Railora to get arrival alerts", Toast.LENGTH_LONG).show()
+    }
+
+    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        mine.forEach { a -> AlertCard(a, onCancel = { ArrivalAlerts.cancel(context, a.id) }) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Action("View on Map", Icons.Rounded.Map, ActionBlue, Modifier.weight(1f), onMap)
+            Action("Set Alert", Icons.Rounded.NotificationsActive, ToolPurple, Modifier.weight(1f)) {
+                if (status.state == RunState.REACHED) {
+                    Toast.makeText(context, "This run has already reached its destination", Toast.LENGTH_SHORT).show()
+                } else picking = true
             }
-            context.startActivity(Intent.createChooser(send, "Share train status"))
+            Action("Share", Icons.Rounded.Share, ActionGreen, Modifier.weight(1f)) {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, shareText(status, placement))
+                }
+                context.startActivity(Intent.createChooser(send, "Share train status"))
+            }
+        }
+    }
+
+    if (picking) {
+        BoardingPicker(status, onDismiss = { picking = false }) { stop ->
+            picking = false
+            val alert = ArrivalAlert(
+                trainNumber = status.number,
+                trainName = status.name,
+                station = stop.station,
+                startDate = runDate,
+                eta = stop.arrival?.best ?: stop.departure?.best,
+                delayMinutes = stop.arrival?.delayMinutes ?: status.delayMinutes,
+                lastChecked = null,
+            )
+            val needsPermission = Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            if (needsPermission) {
+                waiting = alert
+                askPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else begin(alert)
+        }
+    }
+}
+
+/** An alert that's on: where, the latest expected time, and a way to turn it off. */
+@Composable
+private fun AlertCard(alert: ArrivalAlert, onCancel: () -> Unit) {
+    Surface(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = ToolPurple.copy(alpha = 0.10f),
+    ) {
+        Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = ToolPurple)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Alert on for ${alert.station.name} (${alert.station.code})", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    listOfNotNull(
+                        alert.eta?.let { "Expected ${it.format(ClockFormat)}" },
+                        alert.delayMinutes?.let { if (it <= 0) "on time" else "$it min late" },
+                        alert.lastChecked?.let { "checked ${it.format(ClockFormat)}" },
+                    ).joinToString(" · ").ifEmpty { "Checking the train…" },
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onCancel) { Text("Cancel", color = ToolPurple) }
+        }
+    }
+}
+
+/** "Which station are you boarding at?" — the stops still ahead, with expected times. */
+@Composable
+private fun BoardingPicker(status: LiveTrainStatus, onDismiss: () -> Unit, onPick: (LiveStop) -> Unit) {
+    val ahead = status.stops.filter { !it.passed }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface) {
+            Column(Modifier.padding(vertical = 18.dp)) {
+                Text(
+                    "Which station are you boarding at?",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 20.dp),
+                )
+                Text(
+                    "We'll keep an eye on the train and notify you when it's about to reach your station, " +
+                        "even if it's running late.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 10.dp),
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(ahead) { stop ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { onPick(stop) }
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("${stop.station.name} (${stop.station.code})", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                                stop.platform?.let { Text("Platform $it", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            }
+                            (stop.arrival ?: stop.departure)?.best?.let {
+                                Text(it.format(ClockFormat), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End).padding(end = 8.dp)) { Text("Cancel") }
+            }
         }
     }
 }

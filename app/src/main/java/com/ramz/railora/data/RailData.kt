@@ -21,7 +21,11 @@ import com.ramz.railora.domain.source.StationSource
 import com.ramz.railora.domain.source.TrainListSource
 import com.ramz.railora.domain.source.TrainRouteSource
 import com.ramz.railora.domain.source.TrainsBetweenSource
+import com.ramz.railora.data.alerts.AlertStore
+import com.ramz.railora.domain.model.LiveTrainStatus
 import java.io.File
+import java.time.LocalDate
+import java.time.LocalDateTime
 
 /**
  * The one place that decides which site backs each feature. To move a feature to another site,
@@ -65,6 +69,26 @@ object RailData {
         LiveSource.NTES -> ntesLive
         LiveSource.RAILYATRI -> railYatri
     }
+
+    /**
+     * The status from [source]; for a past run it can't show (Where is my Train has only its
+     * latest), from NTES, which lists every run. Returns the status and the site that gave it.
+     */
+    suspend fun liveStatusAnswer(
+        source: LiveSource,
+        trainNumber: String,
+        now: LocalDateTime,
+        startDate: LocalDate?,
+    ): Pair<LiveTrainStatus?, LiveSource> {
+        val status = liveStatus(source).liveStatus(trainNumber, now, startDate)
+        if (status != null || startDate == null || source == LiveSource.NTES) return status to source
+        return liveStatus(LiveSource.NTES).liveStatus(trainNumber, now, startDate) to LiveSource.NTES
+    }
+
+    suspend fun liveStatusOrNtes(source: LiveSource, trainNumber: String, now: LocalDateTime, startDate: LocalDate?) =
+        liveStatusAnswer(source, trainNumber, now, startDate).first
+
+    val alerts: AlertStore by lazy { AlertStore(appContext) }
 
     private val wimt by lazy { WhereIsMyTrain() }
     private val ntesLive by lazy { NtesLiveStatus(ntes) }

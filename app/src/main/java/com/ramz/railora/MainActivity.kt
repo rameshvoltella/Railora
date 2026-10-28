@@ -2,12 +2,14 @@ package com.ramz.railora
 
 import android.graphics.Color as AndroidColor
 import android.app.UiModeManager
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.ramz.railora.data.RailData
+import com.ramz.railora.data.alerts.ArrivalAlerts
 import com.ramz.railora.data.settings.ThemeMode
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -56,7 +58,17 @@ enum class Tab(val label: String, val icon: ImageVector) {
 }
 
 class MainActivity : ComponentActivity() {
+
+    /** A train to open in Spot My Train, from an arrival alert notification. */
+    private val openTrain = mutableStateOf<String?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra(ArrivalAlerts.EXTRA_TRAIN)?.let { openTrain.value = it }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        if (savedInstanceState == null) openTrain.value = intent.getStringExtra(ArrivalAlerts.EXTRA_TRAIN)
         installSplashScreen()
         super.onCreate(savedInstanceState)
         setContent {
@@ -77,7 +89,7 @@ class MainActivity : ComponentActivity() {
                 applyNightModeToSystem(mode)
             }
             RailoraTheme(darkTheme = dark) {
-                RailoraApp()
+                RailoraApp(openTrain = openTrain.value, onOpened = { openTrain.value = null })
             }
         }
     }
@@ -99,10 +111,17 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun RailoraApp() {
+fun RailoraApp(openTrain: String? = null, onOpened: () -> Unit = {}) {
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
-    // A train to open in Spot My Train (from another tab).
+    // A train to open in Spot My Train (from another tab, or a notification).
     var spotRequest by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(openTrain) {
+        if (openTrain != null) {
+            spotRequest = openTrain
+            tab = Tab.SPOT
+            onOpened()
+        }
+    }
     // Back from any other tab goes Home; back on Home leaves the app (the default).
     BackHandler(enabled = tab != Tab.HOME) { tab = Tab.HOME }
     Scaffold(
