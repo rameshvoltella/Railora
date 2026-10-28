@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A halt on the map: white dot with a dark-blue ring. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="14dp"
+    android:height="14dp"
+    android:viewportWidth="14"
+    android:viewportHeight="14">
+    <path
+        android:fillColor="#1E3A8A"
+        android:pathData="M7,0a7,7 0,1 1,0 14a7,7 0,1 1,0 -14z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M7,3a4,4 0,1 1,0 8a4,4 0,1 1,0 -8z" />
+</vector>
