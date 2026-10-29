@@ -14,3 +14,19 @@
 .cxx
 local.properties
 .kotlin
+
+# Release builds (Android Studio's "Generate Signed App Bundle / APK" output)
+/app/release/
+/app/debug/
+*.apk
+*.aab
+*.apks
+output-metadata.json
+baselineProfiles/
+
+# Signing keys and their passwords: never commit these
+*.jks
+*.keystore
+/Key/
+keystore.properties
+signing.properties
