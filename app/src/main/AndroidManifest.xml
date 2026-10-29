@@ -20,6 +20,7 @@
         android:theme="@style/Theme.Railora">
         <activity
             android:name=".MainActivity"
+            android:screenOrientation="portrait"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.Railora.Starting">
@@ -32,6 +33,7 @@
 
         <activity
             android:name=".ui.alarm.AlarmActivity"
+            android:screenOrientation="portrait"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance"

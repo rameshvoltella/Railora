@@ -11,10 +11,11 @@ import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import com.ramz.railora.R
 
 /**
- * The "train approaching" alarm: the app's sound (`res/raw/train_alarm`, if added) or the
- * phone's alarm tone, played on the alarm stream (so it sounds even with media muted), with
+ * The "train approaching" alarm: the app's sound (`res/raw/train_alarm.mp3`; the phone's alarm
+ * tone if that can't play), on the alarm stream (so it sounds even with media muted), with
  * vibration, for [PLAY_MS], then stops by itself. [stop] ends it early (Stop button, pop-up).
  */
 object AlarmSound {
@@ -29,20 +30,21 @@ object AlarmSound {
     fun play(context: Context) = main.post {
         stop()
         val app = context.applicationContext
-        player = runCatching {
-            MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                setDataSource(app, soundUri(app))
-                isLooping = true
-                prepare()
-                start()
-            }
-        }.getOrNull()
+        fun start(uri: Uri) = MediaPlayer().apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            setDataSource(app, uri)
+            isLooping = true
+            prepare()
+            start()
+        }
+        player = runCatching { start(soundUri(app)) }
+            .recoverCatching { start(fallbackUri(app)) }
+            .getOrNull()
 
         vibrator = (if (Build.VERSION.SDK_INT >= 31) {
             app.getSystemService(VibratorManager::class.java)?.defaultVibrator
@@ -64,11 +66,12 @@ object AlarmSound {
         vibrator = null
     }
 
-    /** `res/raw/train_alarm` when the app has one, otherwise the phone's alarm (or ringtone). */
-    private fun soundUri(context: Context): Uri {
-        val id = context.resources.getIdentifier("train_alarm", "raw", context.packageName)
-        if (id != 0) return Uri.parse("android.resource://${context.packageName}/$id")
-        return RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM)
+    /** The app's own alarm (`res/raw/train_alarm.mp3`). */
+    private fun soundUri(context: Context): Uri =
+        Uri.parse("android.resource://${context.packageName}/${R.raw.train_alarm}")
+
+    /** The phone's alarm tone (or ringtone), if the app's sound can't be played. */
+    private fun fallbackUri(context: Context): Uri =
+        RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-    }
 }
