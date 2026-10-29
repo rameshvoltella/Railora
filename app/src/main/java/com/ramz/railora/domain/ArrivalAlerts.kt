@@ -45,11 +45,17 @@ object AlertPlanner {
     private val NEAR: Duration = Duration.ofMinutes(12)
     private val CLOSE_CHECKS: Duration = Duration.ofMinutes(3)
     private val FAR_CHECKS_MAX: Duration = Duration.ofHours(2)
+    private val EARLY_LOOK: Duration = Duration.ofHours(3)
 
     fun next(status: LiveTrainStatus?, stationCode: String, now: LocalDateTime, previousEta: LocalDateTime?): AlertStep {
         if (status == null) {
-            // No answer this time: try again soon, give up long after it should have arrived.
+            // No answer: give up long after it should have arrived.
             if (previousEta != null && now.isAfter(previousEta.plusHours(4))) return AlertStep.GiveUp("No news of the train")
+            // An alert set days ahead (e.g. from a PNR): the run isn't on the sites yet, so wait
+            // until a few hours before; it will have started by then unless boarding at its origin.
+            if (previousEta != null && Duration.between(now, previousEta) > EARLY_LOOK) {
+                return AlertStep.CheckAgain(previousEta.minus(EARLY_LOOK), previousEta, null)
+            }
             return AlertStep.CheckAgain(now.plusMinutes(5), previousEta, null)
         }
         val index = status.stops.indexOfFirst { it.station.code == stationCode }

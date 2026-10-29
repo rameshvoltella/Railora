@@ -7,6 +7,7 @@ import com.ramz.railora.data.settings.AppSettings
 import com.ramz.railora.data.settings.PnrSite
 import com.ramz.railora.domain.model.PnrStatus
 import com.ramz.railora.domain.model.PnrUnavailable
+import com.ramz.railora.domain.model.TrainRoute
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +21,8 @@ data class PnrState(
     val error: String? = null,
     val status: PnrStatus? = null,
     val recent: List<String> = emptyList(),
+    /** The ticket's train route, for the alert's station choice and run date; null until loaded. */
+    val route: TrainRoute? = null,
 )
 
 class PnrViewModel(private val settings: AppSettings = RailData.settings) : ViewModel() {
@@ -47,7 +50,11 @@ class PnrViewModel(private val settings: AppSettings = RailData.settings) : View
             try {
                 val status = RailData.pnr(site).pnrStatus(pnr)
                 settings.recentPnrs = listOf(pnr) + settings.recentPnrs.filter { it != pnr }
-                _state.update { it.copy(loading = false, status = status, recent = settings.recentPnrs) }
+                _state.update { it.copy(loading = false, status = status, recent = settings.recentPnrs, route = null) }
+                status.trainNumber?.let { number ->
+                    val route = runCatching { RailData.routes.route(number) }.getOrNull()
+                    _state.update { if (it.status === status) it.copy(route = route) else it }
+                }
             } catch (e: PnrUnavailable) {
                 _state.update { it.copy(loading = false, status = null, error = e.message) }
             } catch (e: Exception) {

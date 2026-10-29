@@ -1,23 +1,16 @@
 package com.ramz.railora
 
-import android.graphics.Color as AndroidColor
 import android.app.UiModeManager
 import android.content.Intent
+import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.os.Bundle
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import com.ramz.railora.data.RailData
-import com.ramz.railora.data.alerts.ArrivalAlerts
-import com.ramz.railora.data.settings.ThemeMode
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -34,17 +27,24 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.ramz.railora.data.RailData
+import com.ramz.railora.data.alerts.ArrivalAlerts
+import com.ramz.railora.data.settings.ThemeMode
 import com.ramz.railora.ui.between.TrainsBetweenScreen
+import com.ramz.railora.ui.coach.CoachScreen
 import com.ramz.railora.ui.home.HomeAction
 import com.ramz.railora.ui.home.HomeScreen
 import com.ramz.railora.ui.pnr.PnrScreen
+import com.ramz.railora.ui.saved.SavedScreen
 import com.ramz.railora.ui.settings.SettingsScreen
 import com.ramz.railora.ui.spot.SpotScreen
 import com.ramz.railora.ui.theme.RailoraTheme
@@ -56,6 +56,9 @@ enum class Tab(val label: String, val icon: ImageVector) {
     TRAINS("Trains", Icons.Rounded.Train),
     SETTINGS("Settings", Icons.Rounded.Settings),
 }
+
+/** Pages opened from Home rather than from the bottom bar. */
+enum class Page { SAVED, COACH }
 
 class MainActivity : ComponentActivity() {
 
@@ -122,8 +125,12 @@ fun RailoraApp(openTrain: String? = null, onOpened: () -> Unit = {}) {
             onOpened()
         }
     }
-    // Back from any other tab goes Home; back on Home leaves the app (the default).
-    BackHandler(enabled = tab != Tab.HOME) { tab = Tab.HOME }
+    // A page opened from Home's Quick Tools, shown over the Home tab.
+    var page by rememberSaveable { mutableStateOf<Page?>(null) }
+    // Back closes a page, then from any other tab goes Home; back on Home leaves the app (the default).
+    BackHandler(enabled = page != null || tab != Tab.HOME) {
+        if (page != null) page = null else tab = Tab.HOME
+    }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
@@ -131,7 +138,7 @@ fun RailoraApp(openTrain: String? = null, onOpened: () -> Unit = {}) {
                 Tab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = t == tab,
-                        onClick = { tab = t },
+                        onClick = { tab = t; page = null },
                         icon = { Icon(t.icon, contentDescription = null) },
                         label = { Text(t.label) },
                         colors = NavigationBarItemDefaults.colors(
@@ -146,30 +153,32 @@ fun RailoraApp(openTrain: String? = null, onOpened: () -> Unit = {}) {
     ) { inner ->
         // Home draws under the status bar itself; only keep clear of the bottom bar.
         val content = Modifier.padding(bottom = inner.calculateBottomPadding())
-        when (tab) {
-            Tab.HOME -> HomeScreen(content, onAction = { action ->
-                when (action) {
-                    HomeAction.PNR -> tab = Tab.PNR
-                    HomeAction.SPOT, HomeAction.LIVE_STATUS -> tab = Tab.SPOT
-                    HomeAction.BETWEEN_STATIONS, HomeAction.SCHEDULE -> tab = Tab.TRAINS
-                    else -> Unit
-                }
-            })
-            Tab.TRAINS -> TrainsBetweenScreen(content, onTrainClick = { train ->
-                spotRequest = train.number
+        when {
+            page == Page.SAVED -> SavedScreen(content, onOpen = { number ->
+                spotRequest = number
+                page = null
                 tab = Tab.SPOT
             })
-            Tab.SPOT -> SpotScreen(content, request = spotRequest, onRequestHandled = { spotRequest = null })
-            Tab.SETTINGS -> SettingsScreen(content)
-            Tab.PNR -> PnrScreen(content)
-            else -> ComingSoon(tab.label, Modifier.padding(inner))
+            page == Page.COACH -> CoachScreen(content)
+            else -> when (tab) {
+                Tab.HOME -> HomeScreen(content, onAction = { action ->
+                    when (action) {
+                        HomeAction.PNR -> tab = Tab.PNR
+                        HomeAction.SPOT, HomeAction.LIVE_STATUS -> tab = Tab.SPOT
+                        HomeAction.BETWEEN_STATIONS, HomeAction.SCHEDULE -> tab = Tab.TRAINS
+                        HomeAction.SAVED -> page = Page.SAVED
+                        HomeAction.COACH_POSITION -> page = Page.COACH
+                        else -> Unit
+                    }
+                })
+                Tab.TRAINS -> TrainsBetweenScreen(content, onTrainClick = { train ->
+                    spotRequest = train.number
+                    tab = Tab.SPOT
+                })
+                Tab.SPOT -> SpotScreen(content, request = spotRequest, onRequestHandled = { spotRequest = null })
+                Tab.SETTINGS -> SettingsScreen(content)
+                Tab.PNR -> PnrScreen(content)
+            }
         }
-    }
-}
-
-@Composable
-private fun ComingSoon(name: String, modifier: Modifier) {
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("$name — coming soon", color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

@@ -65,6 +65,8 @@ import com.ramz.railora.domain.model.ClassOffer
 import com.ramz.railora.domain.model.SeatAvailability
 import com.ramz.railora.domain.model.Station
 import com.ramz.railora.domain.model.TrainBetween
+import com.ramz.railora.data.saved.SavedTrain
+import com.ramz.railora.ui.common.SaveStar
 import com.ramz.railora.ui.common.ScreenHeader
 import com.ramz.railora.ui.theme.ActionBlue
 import java.time.DayOfWeek
@@ -435,6 +437,10 @@ private fun TrainCard(train: TrainBetween, modifier: Modifier, onClick: () -> Un
                 )
                 Spacer(Modifier.width(8.dp))
                 Badge(runDaysLabel(train.runDays, train.runsDaily))
+                SaveStar(
+                    SavedTrain(train.number, train.name.toTitle(), train.from.station, train.to.station),
+                    Modifier.size(36.dp),
+                )
             }
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {

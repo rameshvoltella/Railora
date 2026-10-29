@@ -62,6 +62,11 @@ class AppSettings(context: Context) {
         prefs.edit { putString("pnr_site", site.name) }
     }
 
+    /** Trains looked up in Coach Position lately (numbers), newest first. */
+    var recentCoachTrains: List<String>
+        get() = prefs.getString("recent_coach_trains", "").orEmpty().split(',').filter { it.length == 5 }
+        set(value) = prefs.edit { putString("recent_coach_trains", value.take(8).joinToString(",")) }
+
     /** PNRs checked lately, newest first, for one-tap re-checks. */
     var recentPnrs: List<String>
         get() = prefs.getString("recent_pnrs", "").orEmpty().split(',').filter { it.length == 10 }

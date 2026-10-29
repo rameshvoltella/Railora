@@ -22,6 +22,7 @@ import com.ramz.railora.domain.source.TrainListSource
 import com.ramz.railora.domain.source.TrainRouteSource
 import com.ramz.railora.domain.source.TrainsBetweenSource
 import com.ramz.railora.data.alerts.AlertStore
+import com.ramz.railora.data.saved.SavedTrains
 import com.ramz.railora.domain.model.LiveTrainStatus
 import java.io.File
 import java.time.LocalDate
@@ -89,6 +90,8 @@ object RailData {
         liveStatusAnswer(source, trainNumber, now, startDate).first
 
     val alerts: AlertStore by lazy { AlertStore(appContext) }
+
+    val saved: SavedTrains by lazy { SavedTrains(appContext) }
 
     private val wimt by lazy { WhereIsMyTrain() }
     private val ntesLive by lazy { NtesLiveStatus(ntes) }

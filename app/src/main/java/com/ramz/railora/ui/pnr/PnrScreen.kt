@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,11 +41,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -53,12 +59,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ramz.railora.data.RailData
+import com.ramz.railora.data.alerts.ArrivalAlerts
+import com.ramz.railora.domain.PnrAlert
 import com.ramz.railora.domain.model.PnrPassenger
 import com.ramz.railora.domain.model.PnrStatus
 import com.ramz.railora.domain.model.SeatState
+import com.ramz.railora.domain.model.TrainRoute
+import com.ramz.railora.ui.common.AlertCard
 import com.ramz.railora.ui.common.ScreenHeader
+import com.ramz.railora.ui.common.rememberAlertStarter
 import com.ramz.railora.ui.theme.ActionBlue
+import com.ramz.railora.ui.theme.ToolPurple
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -175,6 +189,9 @@ fun PnrScreen(modifier: Modifier = Modifier, vm: PnrViewModel = viewModel()) {
             }
             status != null -> {
                 item { JourneyCard(status) }
+                if (!status.trainCancelled && status.trainNumber != null) {
+                    item { PnrAlertCard(status, state.route) }
+                }
                 item {
                     Text(
                         "Passengers",
@@ -366,3 +383,110 @@ private fun Message(content: @Composable () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) { content() }
 }
+
+/**
+ * Arrival alert for this ticket: by default at the boarding station on the travel day; the
+ * station can be changed to any stop on the route.
+ */
+@Composable
+private fun PnrAlertCard(pnr: PnrStatus, route: TrainRoute?) {
+    val context = LocalContext.current
+    val alerts by RailData.alerts.alerts.collectAsState()
+    val startAlert = rememberAlertStarter()
+    var station by remember(pnr.pnr) { mutableStateOf(PnrAlert.defaultStation(pnr)) }
+    var picking by remember { mutableStateOf(false) }
+    val runStart = PnrAlert.startDate(pnr, route)
+    val on = alerts.filter { it.trainNumber == pnr.trainNumber && it.startDate == runStart }
+
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        if (on.isNotEmpty()) {
+            on.forEach { a -> AlertCard(a, onCancel = { ArrivalAlerts.cancel(context, a.id) }) }
+            return@Column
+        }
+        val s = station ?: return@Column
+        Surface(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = ToolPurple.copy(alpha = 0.08f),
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = ToolPurple)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Arrival alert", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(6.dp))
+                val eta = PnrAlert.eta(pnr, s, route)
+                Text(
+                    "Get an alarm when ${pnr.trainNumber} is about to reach ${s.name} (${s.code})" +
+                        (eta?.let { " on ${it.format(DateTimeFormatter.ofPattern("EEE d MMM", Locale.ENGLISH))}, due ${it.format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH))}" } ?: "") +
+                        ". We follow the train on the day and adjust for any delay.",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = { PnrAlert.alert(pnr, s, route)?.let(startAlert) },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ToolPurple, contentColor = Color.White),
+                    ) { Text("Set alert", fontWeight = FontWeight.SemiBold) }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = { picking = true }, enabled = route != null) {
+                        Text(if (route == null) "Loading stations…" else "Change station", color = ToolPurple)
+                    }
+                }
+            }
+        }
+    }
+
+    if (picking && route != null) {
+        val stops = route.points.filter { it.isStop }
+        Dialog(onDismissRequest = { picking = false }) {
+            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface) {
+                Column(Modifier.padding(vertical = 18.dp)) {
+                    Text(
+                        "Alert me at which station?",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                    )
+                    Text(
+                        "Usually where you board. Pick another if you're meeting someone off the train.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 10.dp),
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                        items(stops) { p ->
+                            val mark = when (p.station.code) {
+                                pnr.boarding?.code -> "Boarding"
+                                pnr.from?.code -> "From"
+                                pnr.to?.code -> "To"
+                                else -> null
+                            }
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { station = p.station; picking = false }
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "${p.station.name} (${p.station.code})",
+                                    fontSize = 15.sp,
+                                    fontWeight = if (mark != null) FontWeight.SemiBold else FontWeight.Normal,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                mark?.let { Badge(it, ToolPurple) }
+                            }
+                        }
+                    }
+                    TextButton(onClick = { picking = false }, modifier = Modifier.align(Alignment.End).padding(end = 8.dp)) { Text("Cancel") }
+                }
+            }
+        }
+    }
+}
+

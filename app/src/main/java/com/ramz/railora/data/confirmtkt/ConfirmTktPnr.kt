@@ -36,7 +36,8 @@ class ConfirmTktPnr : PnrSource {
 }
 
 /**
- * Top level: `Pnr`, `TrainNo`, `TrainName`, `Doj`, `From`/`SourceName`, `To`/`DestinationName`,
+ * Top level: `Pnr`, `TrainNo`, `TrainName`, `Doj` (travel date from `From`), `SourceDoj` (taken
+ * to be the run's start date at the train's origin), `From`/`SourceName`, `To`/`DestinationName`,
  * `BoardingPoint`/`BoardingStationName`, `Class`, `Quota`, `ChartPrepared`, `TrainCancelledFlag`,
  * `DepartureTime`, `ArrivalTime`, `Duration`, `ExpectedPlatformNo`, `TicketFare`/`BookingFare`,
  * `Error`/`ErrorCode` (e.g. 122 during the railways' nightly downtime), and `PassengerStatus[]`
@@ -77,6 +78,7 @@ object ConfirmTktPnrParser {
             trainNumber = trainNo,
             trainName = j.str("TrainName"),
             journeyDate = j.str("Doj")?.let(::date),
+            trainStartDate = j.str("SourceDoj")?.let(::date),
             from = station(j.str("From"), j.str("SourceName")),
             to = station(j.str("To"), j.str("DestinationName")),
             boarding = station(j.str("BoardingPoint"), j.str("BoardingStationName")),

@@ -7,7 +7,10 @@ data class PnrStatus(
     val pnr: String,
     val trainNumber: String?,
     val trainName: String?,
+    /** Date of travel from [from]. */
     val journeyDate: LocalDate?,
+    /** The date this run left the train's origin (differs from [journeyDate] on long journeys), when the site gives it. */
+    val trainStartDate: LocalDate?,
     val from: Station?,
     val to: Station?,
     val boarding: Station?,
