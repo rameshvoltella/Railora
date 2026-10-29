@@ -110,7 +110,7 @@ fun HomeScreen(
                     colors = listOf(ActionBlue, ActionBlueEnd),
                     onClick = { onAction(HomeAction.PNR) },
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(10.dp))
                 ActionCard(
                     title = "Spot My Train",
                     subtitle = "See live train location",
@@ -119,7 +119,7 @@ fun HomeScreen(
                     colors = listOf(ActionGreen, ActionGreenEnd),
                     onClick = { onAction(HomeAction.SPOT) },
                 )
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(10.dp))
                 ActionCard(
                     title = "Trains Between Stations",
                     subtitle = "Find trains & schedule",
@@ -235,7 +235,7 @@ private fun ActionCard(
     colors: List<Color>,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(18.dp)
     Box(
         Modifier
             .fillMaxWidth()
@@ -251,25 +251,25 @@ private fun ActionCard(
             tint = Color.White.copy(alpha = 0.12f),
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .offset(x = (-36).dp, y = 14.dp)
-                .size(96.dp),
+                .offset(x = (-36).dp, y = 10.dp)
+                .size(72.dp),
         )
         Row(
-            Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+            Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(40.dp))
-            Spacer(Modifier.width(20.dp))
+            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Text(subtitle, color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp)
+                Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(2.dp))
+                Text(subtitle, color = Color.White.copy(alpha = 0.9f), fontSize = 13.sp)
             }
             Icon(
                 Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                 contentDescription = null,
                 tint = Color.White,
-                modifier = Modifier.size(28.dp),
+                modifier = Modifier.size(24.dp),
             )
         }
     }
