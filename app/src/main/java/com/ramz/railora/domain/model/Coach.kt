@@ -27,6 +27,19 @@ enum class CoachKind(val label: String) {
     OTHER("Other");
 
     companion object {
+        /** The kind of coach a ticket class travels in ("SL" → sleeper coaches…); null if unknown. */
+        fun forClass(classCode: String?): CoachKind? = when (classCode?.trim()?.uppercase()) {
+            "1A" -> AC_FIRST
+            "2A" -> AC_TWO
+            "3A" -> AC_THREE
+            "3E" -> AC_THREE_ECONOMY
+            "EC" -> EXECUTIVE_CHAIR
+            "CC" -> CHAIR_CAR
+            "SL" -> SLEEPER
+            "2S" -> SECOND_SITTING
+            else -> null
+        }
+
         /** From Indian Railways coach codes, which are the same on every site (A1 = 2A, S4 = SL…). */
         fun fromCode(code: String): CoachKind {
             val c = code.trim().uppercase()

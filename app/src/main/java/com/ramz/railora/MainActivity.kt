@@ -32,6 +32,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -39,6 +40,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.ramz.railora.data.RailData
 import com.ramz.railora.data.alerts.ArrivalAlerts
 import com.ramz.railora.data.settings.ThemeMode
+import com.ramz.railora.ui.alerts.AlertsScreen
 import com.ramz.railora.ui.between.TrainsBetweenScreen
 import com.ramz.railora.ui.coach.CoachScreen
 import com.ramz.railora.ui.home.HomeAction
@@ -58,7 +60,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
 }
 
 /** Pages opened from Home rather than from the bottom bar. */
-enum class Page { SAVED, COACH }
+enum class Page { SAVED, COACH, ALERTS }
 
 class MainActivity : ComponentActivity() {
 
@@ -116,20 +118,45 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun RailoraApp(openTrain: String? = null, onOpened: () -> Unit = {}) {
     var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
-    // A train to open in Spot My Train (from another tab, or a notification).
+    // A page opened from Home's Quick Tools, shown over the Home tab.
+    var page by rememberSaveable { mutableStateOf<Page?>(null) }
+    // A train to open in Spot My Train (from another screen, or a notification).
     var spotRequest by rememberSaveable { mutableStateOf<String?>(null) }
+    // Where links inside screens came from ("TAB/PAGE", newest last), so back returns there,
+    // e.g. a train tapped in Trains Between Stations → Spot My Train → back to the list.
+    var history by rememberSaveable { mutableStateOf(listOf<String>()) }
+    val alerts by RailData.alerts.alerts.collectAsState()
+    // Keeps each screen's scroll position (and other saved UI state) while it's not shown.
+    val screens = rememberSaveableStateHolder()
+
+    fun go(toTab: Tab, toPage: Page? = null) {
+        history = history + "${tab.name}/${page?.name.orEmpty()}"
+        tab = toTab
+        page = toPage
+    }
+
     LaunchedEffect(openTrain) {
         if (openTrain != null) {
             spotRequest = openTrain
             tab = Tab.SPOT
+            page = null
+            history = emptyList()
             onOpened()
         }
     }
-    // A page opened from Home's Quick Tools, shown over the Home tab.
-    var page by rememberSaveable { mutableStateOf<Page?>(null) }
-    // Back closes a page, then from any other tab goes Home; back on Home leaves the app (the default).
-    BackHandler(enabled = page != null || tab != Tab.HOME) {
-        if (page != null) page = null else tab = Tab.HOME
+    // Back: to the screen a link came from, else close a page, else from any tab go Home;
+    // back on Home leaves the app (the default).
+    BackHandler(enabled = history.isNotEmpty() || page != null || tab != Tab.HOME) {
+        val last = history.lastOrNull()
+        when {
+            last != null -> {
+                history = history.dropLast(1)
+                tab = Tab.valueOf(last.substringBefore('/'))
+                page = last.substringAfter('/').takeIf { it.isNotEmpty() }?.let(Page::valueOf)
+            }
+            page != null -> page = null
+            else -> tab = Tab.HOME
+        }
     }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -138,7 +165,7 @@ fun RailoraApp(openTrain: String? = null, onOpened: () -> Unit = {}) {
                 Tab.entries.forEach { t ->
                     NavigationBarItem(
                         selected = t == tab,
-                        onClick = { tab = t; page = null },
+                        onClick = { tab = t; page = null; history = emptyList() },
                         icon = { Icon(t.icon, contentDescription = null) },
                         label = { Text(t.label) },
                         colors = NavigationBarItemDefaults.colors(
@@ -153,31 +180,36 @@ fun RailoraApp(openTrain: String? = null, onOpened: () -> Unit = {}) {
     ) { inner ->
         // Home draws under the status bar itself; only keep clear of the bottom bar.
         val content = Modifier.padding(bottom = inner.calculateBottomPadding())
-        when {
-            page == Page.SAVED -> SavedScreen(content, onOpen = { number ->
-                spotRequest = number
-                page = null
-                tab = Tab.SPOT
-            })
-            page == Page.COACH -> CoachScreen(content)
-            else -> when (tab) {
-                Tab.HOME -> HomeScreen(content, onAction = { action ->
-                    when (action) {
-                        HomeAction.PNR -> tab = Tab.PNR
-                        HomeAction.SPOT, HomeAction.LIVE_STATUS -> tab = Tab.SPOT
-                        HomeAction.BETWEEN_STATIONS, HomeAction.SCHEDULE -> tab = Tab.TRAINS
-                        HomeAction.SAVED -> page = Page.SAVED
-                        HomeAction.COACH_POSITION -> page = Page.COACH
-                        else -> Unit
-                    }
+        screens.SaveableStateProvider(page?.name ?: tab.name) {
+            when {
+                page == Page.SAVED -> SavedScreen(content, onOpen = { number ->
+                    spotRequest = number
+                    go(Tab.SPOT)
                 })
-                Tab.TRAINS -> TrainsBetweenScreen(content, onTrainClick = { train ->
-                    spotRequest = train.number
-                    tab = Tab.SPOT
+                page == Page.COACH -> CoachScreen(content)
+                page == Page.ALERTS -> AlertsScreen(content, onOpen = { number ->
+                    spotRequest = number
+                    go(Tab.SPOT)
                 })
-                Tab.SPOT -> SpotScreen(content, request = spotRequest, onRequestHandled = { spotRequest = null })
-                Tab.SETTINGS -> SettingsScreen(content)
-                Tab.PNR -> PnrScreen(content)
+                else -> when (tab) {
+                    Tab.HOME -> HomeScreen(content, alertCount = alerts.size, onAction = { action ->
+                        when (action) {
+                            HomeAction.PNR -> go(Tab.PNR)
+                            HomeAction.SPOT, HomeAction.LIVE_STATUS -> go(Tab.SPOT)
+                            HomeAction.BETWEEN_STATIONS, HomeAction.SCHEDULE -> go(Tab.TRAINS)
+                            HomeAction.SAVED -> go(Tab.HOME, Page.SAVED)
+                            HomeAction.COACH_POSITION -> go(Tab.HOME, Page.COACH)
+                            HomeAction.ALERTS -> go(Tab.HOME, Page.ALERTS)
+                        }
+                    })
+                    Tab.TRAINS -> TrainsBetweenScreen(content, onTrainClick = { train ->
+                        spotRequest = train.number
+                        go(Tab.SPOT)
+                    })
+                    Tab.SPOT -> SpotScreen(content, request = spotRequest, onRequestHandled = { spotRequest = null })
+                    Tab.SETTINGS -> SettingsScreen(content)
+                    Tab.PNR -> PnrScreen(content)
+                }
             }
         }
     }

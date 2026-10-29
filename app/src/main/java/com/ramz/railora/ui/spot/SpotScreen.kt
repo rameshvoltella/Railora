@@ -99,6 +99,7 @@ import com.ramz.railora.ui.theme.ToolPurple
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -823,11 +824,14 @@ private fun Action(label: String, icon: ImageVector, color: Color, modifier: Mod
 
 /**
  * Long journeys have several runs on the way at once (12626 takes three days), so the user
- * picks which by the day it left its origin.
+ * picks which by the day it left its origin: today, yesterday, 2 days ago, or "Earlier" (3–7
+ * days ago) for a train running days late.
  */
 @Composable
 private fun RunPicker(selected: LocalDate?, today: LocalDate, onPick: (LocalDate) -> Unit) {
     val dayMonth = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
+    var choosingEarlier by remember { mutableStateOf(false) }
+    val earlier = selected?.takeIf { it.isBefore(today.minusDays(2)) }
     Column(Modifier.padding(horizontal = 16.dp)) {
         Text(
             "Train started on",
@@ -838,31 +842,84 @@ private fun RunPicker(selected: LocalDate?, today: LocalDate, onPick: (LocalDate
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Today", "Yesterday", "2 days ago").forEachIndexed { i, label ->
                 val date = today.minusDays(i.toLong())
-                val on = date == selected
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (on) ActionBlue else MaterialTheme.colorScheme.surface)
-                        .border(1.dp, if (on) ActionBlue else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
-                        .clickable { onPick(date) }
-                        .padding(vertical = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
+                RunChip(label, date.format(dayMonth), on = date == selected, Modifier.weight(1f)) { onPick(date) }
+            }
+            RunChip(
+                earlier?.let { "${ChronoUnit.DAYS.between(it, today)} days ago" } ?: "Earlier",
+                earlier?.format(dayMonth) ?: "3+ days",
+                on = earlier != null,
+                Modifier.weight(1f),
+            ) { choosingEarlier = true }
+        }
+    }
+
+    if (choosingEarlier) {
+        Dialog(onDismissRequest = { choosingEarlier = false }) {
+            Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface) {
+                Column(Modifier.padding(vertical = 18.dp)) {
                     Text(
-                        label,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (on) Color.White else MaterialTheme.colorScheme.onSurface,
+                        "Train started on",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 20.dp),
                     )
                     Text(
-                        date.format(dayMonth),
-                        fontSize = 12.sp,
-                        color = if (on) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        "For a train running very late: pick the day it left its first station.",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp),
                     )
+                    (3L..7L).forEach { back ->
+                        val date = today.minusDays(back)
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { choosingEarlier = false; onPick(date) }
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("$back days ago", fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                            Text(
+                                date.format(DateTimeFormatter.ofPattern("EEE, d MMM", Locale.ENGLISH)),
+                                fontSize = 14.sp,
+                                color = if (date == selected) ActionBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (date == selected) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                    TextButton(onClick = { choosingEarlier = false }, modifier = Modifier.align(Alignment.End).padding(end = 8.dp)) {
+                        Text("Cancel")
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RunChip(label: String, sub: String, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (on) ActionBlue else MaterialTheme.colorScheme.surface)
+            .border(1.dp, if (on) ActionBlue else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            label,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (on) Color.White else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+        )
+        Text(
+            sub,
+            fontSize = 12.sp,
+            color = if (on) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
     }
 }
 

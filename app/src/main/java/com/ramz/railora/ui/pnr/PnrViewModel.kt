@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.ramz.railora.data.RailData
 import com.ramz.railora.data.settings.AppSettings
 import com.ramz.railora.data.settings.PnrSite
+import com.ramz.railora.domain.model.CoachPosition
 import com.ramz.railora.domain.model.PnrStatus
 import com.ramz.railora.domain.model.PnrUnavailable
 import com.ramz.railora.domain.model.TrainRoute
@@ -23,6 +24,8 @@ data class PnrState(
     val recent: List<String> = emptyList(),
     /** The ticket's train route, for the alert's station choice and run date; null until loaded. */
     val route: TrainRoute? = null,
+    /** The ticket's train coach order; null until loaded or if unavailable. */
+    val coaches: CoachPosition? = null,
 )
 
 class PnrViewModel(private val settings: AppSettings = RailData.settings) : ViewModel() {
@@ -50,8 +53,12 @@ class PnrViewModel(private val settings: AppSettings = RailData.settings) : View
             try {
                 val status = RailData.pnr(site).pnrStatus(pnr)
                 settings.recentPnrs = listOf(pnr) + settings.recentPnrs.filter { it != pnr }
-                _state.update { it.copy(loading = false, status = status, recent = settings.recentPnrs, route = null) }
+                _state.update { it.copy(loading = false, status = status, recent = settings.recentPnrs, route = null, coaches = null) }
                 status.trainNumber?.let { number ->
+                    launch {
+                        val coaches = runCatching { RailData.coaches.coachPosition(number) }.getOrNull()
+                        _state.update { if (it.status === status) it.copy(coaches = coaches) else it }
+                    }
                     val route = runCatching { RailData.routes.route(number) }.getOrNull()
                     _state.update { if (it.status === status) it.copy(route = route) else it }
                 }

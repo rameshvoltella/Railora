@@ -63,7 +63,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ramz.railora.data.RailData
 import com.ramz.railora.data.alerts.ArrivalAlerts
+import com.ramz.railora.domain.BerthPosition
+import com.ramz.railora.domain.BerthType
+import com.ramz.railora.domain.Berths
 import com.ramz.railora.domain.PnrAlert
+import com.ramz.railora.domain.model.CoachKind
+import com.ramz.railora.domain.model.CoachPosition
 import com.ramz.railora.domain.model.PnrPassenger
 import com.ramz.railora.domain.model.PnrStatus
 import com.ramz.railora.domain.model.SeatState
@@ -71,6 +76,7 @@ import com.ramz.railora.domain.model.TrainRoute
 import com.ramz.railora.ui.common.AlertCard
 import com.ramz.railora.ui.common.ScreenHeader
 import com.ramz.railora.ui.common.rememberAlertStarter
+import com.ramz.railora.ui.spot.CoachCard
 import com.ramz.railora.ui.theme.ActionBlue
 import com.ramz.railora.ui.theme.ToolPurple
 import java.time.format.DateTimeFormatter
@@ -201,6 +207,15 @@ fun PnrScreen(modifier: Modifier = Modifier, vm: PnrViewModel = viewModel()) {
                     )
                 }
                 items(status.passengers, key = { it.number }) { p -> PassengerCard(p) }
+                state.coaches?.let { coaches ->
+                    item { CoachSection(status, coaches) }
+                    val seats = status.passengers.mapNotNull { p ->
+                        Berths.seatOf(p)?.let { (coach, berth) ->
+                            Berths.position(status.travelClass, berth)?.let { Triple(p, coach, it) }
+                        }
+                    }
+                    items(seats, key = { "seat-${it.first.number}" }) { (p, coach, pos) -> SeatCard(p, coach, pos) }
+                }
                 item {
                     Text(
                         "Status from ${state.site.label} · change the site in Settings",
@@ -488,5 +503,117 @@ private fun PnrAlertCard(pnr: PnrStatus, route: TrainRoute?) {
             }
         }
     }
+}
+
+/**
+ * The train's coach order with the passengers' coaches marked ("S4 is the 17th coach from the
+ * engine"); before confirmation, the coaches of the ticket's class.
+ */
+@Composable
+private fun CoachSection(pnr: PnrStatus, coaches: CoachPosition) {
+    val seats = pnr.passengers.mapNotNull { p -> Berths.seatOf(p)?.let { p to it.first } }
+    val yours = seats.map { it.second }.toSet()
+    val classKind = CoachKind.forClass(pnr.travelClass)
+    val classCoaches = coaches.coaches.filter { it.kind == classKind }.map { it.code }
+    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Coach position", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, top = 6.dp))
+        val lines = if (seats.isNotEmpty()) {
+            seats.distinctBy { it.second }.map { (p, coach) ->
+                val pos = coaches.coaches.firstOrNull { it.code == coach }?.position
+                "Passenger ${p.number}: coach $coach" + (pos?.let { " is the ${ordinal(it)} coach from the engine" } ?: " (not in the usual order — check at the station)")
+            }
+        } else {
+            listOfNotNull(
+                if (classCoaches.isNotEmpty()) "${pnr.travelClass} coaches: ${classCoaches.joinToString(", ")}." else null,
+                "Your coach and berth will show here once the ticket is confirmed.",
+            )
+        }
+        lines.forEach { Text(it, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp)) }
+        CoachCard(coaches, yours = yours, yourClass = if (yours.isEmpty()) classKind else null)
+    }
+}
+
+/** A confirmed berth: its type, bay and place in the coach, with the bay drawn and the berth marked. */
+@Composable
+private fun SeatCard(p: PnrPassenger, coach: String, pos: BerthPosition) {
+    Surface(
+        Modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Passenger ${p.number} · $coach · Berth ${pos.number}", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "${pos.type.label} (${pos.type.code}) in bay ${pos.bay} of ${pos.bays}, ${pos.whereInCoach}.",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+            BayDiagram(pos)
+        }
+    }
+}
+
+/**
+ * One bay seen from the aisle: the two facing berth stacks, then the side berths across the
+ * aisle, each with its number; the passenger's berth is filled.
+ */
+@Composable
+private fun BayDiagram(pos: BerthPosition) {
+    val first = (pos.bay - 1) * pos.pattern.size + 1
+    val indices = pos.pattern.indices
+    val side = indices.filter { pos.pattern[it] == BerthType.SIDE_LOWER || pos.pattern[it] == BerthType.SIDE_UPPER }
+    val main = indices - side.toSet()
+    val stacks = main.chunked(main.size / 2)
+    @Composable
+    fun Stack(ixs: List<Int>, label: String) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Upper berths on top, lower at the bottom, as they are in the coach.
+            ixs.sortedByDescending { pos.pattern[it].ordinal }
+                .forEach { i -> Berth(first + i, pos.pattern[i], i + 1 == pos.inBay) }
+            Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        stacks.getOrNull(0)?.let { Stack(it, "Window") }
+        stacks.getOrNull(1)?.let { Stack(it, "Window") }
+        if (side.isNotEmpty()) {
+            Box(
+                Modifier
+                    .width(1.dp)
+                    .height(90.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant)
+            )
+            Stack(side, "Side")
+        }
+    }
+}
+
+@Composable
+private fun Berth(number: Int, type: BerthType, mine: Boolean) {
+    val color = if (mine) Color(0xFFF5B301) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+    Column(
+        Modifier
+            .padding(vertical = 2.dp)
+            .width(62.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(color)
+            .padding(vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("$number", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (mine) Color.White else MaterialTheme.colorScheme.onSurface)
+        Text(type.code, fontSize = 10.sp, color = if (mine) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private fun ordinal(n: Int): String = n.toString() + when {
+    n % 100 in 11..13 -> "th"
+    n % 10 == 1 -> "st"
+    n % 10 == 2 -> "nd"
+    n % 10 == 3 -> "rd"
+    else -> "th"
 }
 

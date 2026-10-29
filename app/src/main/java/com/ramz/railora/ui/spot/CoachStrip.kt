@@ -2,6 +2,7 @@ package com.ramz.railora.ui.spot
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +25,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,8 +74,23 @@ private fun CoachKind.color(): Color = when (this) {
  * coach and its number from the engine. Tapping a coach with a seat layout shows the layout.
  */
 @Composable
-fun CoachCard(coaches: CoachPosition, modifier: Modifier = Modifier) {
+fun CoachCard(
+    coaches: CoachPosition,
+    modifier: Modifier = Modifier,
+    /** Coach codes to mark as the user's ("S4"), e.g. from a PNR. */
+    yours: Set<String> = emptySet(),
+    /** Coaches of this kind get a lighter mark, e.g. the ticket's class while it's waitlisted. */
+    yourClass: CoachKind? = null,
+) {
     var layoutOf by remember { mutableStateOf<Coach?>(null) }
+    val scroll = rememberScrollState()
+    val density = LocalDensity.current
+    // Bring the first marked coach into view.
+    LaunchedEffect(coaches, yours, yourClass) {
+        val i = coaches.coaches.indexOfFirst { it.code in yours }.takeIf { it >= 0 }
+            ?: coaches.coaches.indexOfFirst { it.kind == yourClass }.takeIf { it >= 0 } ?: return@LaunchedEffect
+        scroll.animateScrollTo(with(density) { ((i - 1).coerceAtLeast(0) * 71).dp.roundToPx() })
+    }
     Surface(
         modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -95,13 +113,21 @@ fun CoachCard(coaches: CoachPosition, modifier: Modifier = Modifier) {
             Spacer(Modifier.height(14.dp))
             Row(
                 Modifier
-                    .horizontalScroll(rememberScrollState())
+                    .horizontalScroll(scroll)
                     .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 coaches.coaches.forEach { c ->
-                    CoachItem(c, onClick = { if (c.layoutImageUrl != null) layoutOf = c })
+                    CoachItem(
+                        c,
+                        mark = when {
+                            c.code in yours -> Mark.YOURS
+                            yourClass != null && c.kind == yourClass -> Mark.CLASS
+                            else -> Mark.NONE
+                        },
+                        onClick = { if (c.layoutImageUrl != null) layoutOf = c },
+                    )
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -158,16 +184,31 @@ fun CoachCard(coaches: CoachPosition, modifier: Modifier = Modifier) {
     }
 }
 
+private enum class Mark { NONE, CLASS, YOURS }
+
 @Composable
-private fun CoachItem(coach: Coach, onClick: () -> Unit) {
+private fun CoachItem(coach: Coach, mark: Mark, onClick: () -> Unit) {
     val color = coach.kind.color()
     Column(
         Modifier
             .clip(RoundedCornerShape(8.dp))
+            .then(
+                when (mark) {
+                    Mark.YOURS -> Modifier.border(2.dp, Color(0xFFF5B301), RoundedCornerShape(8.dp))
+                    Mark.CLASS -> Modifier.border(1.dp, color.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    Mark.NONE -> Modifier
+                }
+            )
             .clickable(onClick = onClick)
             .padding(2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Text(
+            if (mark == Mark.YOURS) "You" else "",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFFE6A100),
+        )
         Text(
             if (coach.kind == CoachKind.ENGINE) "Engine" else coach.code,
             modifier = Modifier

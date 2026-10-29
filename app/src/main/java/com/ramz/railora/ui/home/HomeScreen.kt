@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -27,7 +28,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.AirlineSeatReclineNormal
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
-import androidx.compose.material.icons.rounded.NotificationsNone
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
@@ -35,7 +36,6 @@ import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Train
 import androidx.compose.material.icons.rounded.Tram
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,10 +45,10 @@ import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -69,9 +69,10 @@ import com.ramz.railora.ui.theme.ToolGreen
 import com.ramz.railora.ui.theme.ToolOrange
 import com.ramz.railora.ui.theme.ToolPink
 import com.ramz.railora.ui.theme.ToolPurple
+import com.ramz.railora.ui.theme.ToolRed
 
 /** Where each home shortcut leads; MainActivity routes them. */
-enum class HomeAction { PNR, SPOT, BETWEEN_STATIONS, LIVE_STATUS, SCHEDULE, COACH_POSITION, SAVED, NOTIFICATIONS }
+enum class HomeAction { PNR, SPOT, BETWEEN_STATIONS, LIVE_STATUS, SCHEDULE, COACH_POSITION, SAVED, ALERTS }
 
 private val HeroHeight = 340.dp
 private val SheetOverlap = 32.dp
@@ -80,6 +81,8 @@ private val SheetOverlap = 32.dp
 fun HomeScreen(
     modifier: Modifier = Modifier,
     dayPart: DayPart = rememberDayPart(),
+    /** Arrival alerts that are on; when any, an Alerts tile shows in Quick Tools. */
+    alertCount: Int = 0,
     onAction: (HomeAction) -> Unit = {},
 ) {
     val scroll = rememberScrollState()
@@ -89,7 +92,7 @@ fun HomeScreen(
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(scroll)
     ) {
-        Hero(dayPart, scrolled = { scroll.value }, onBell = { onAction(HomeAction.NOTIFICATIONS) })
+        Hero(dayPart, scrolled = { scroll.value })
 
         Surface(
             modifier = Modifier
@@ -140,6 +143,16 @@ fun HomeScreen(
                     QuickTool("Coach\nPosition", Icons.Rounded.AirlineSeatReclineNormal, ToolPurple, tile) { onAction(HomeAction.COACH_POSITION) }
                     QuickTool("Saved\nTrains", Icons.Rounded.Star, ToolGreen, tile) { onAction(HomeAction.SAVED) }
                 }
+                // Only while an arrival alert is on: a tile listing them, with how many.
+                if (alertCount > 0) {
+                    Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        val tile = Modifier.weight(1f)
+                        QuickTool("Train\nAlerts", Icons.Rounded.NotificationsActive, ToolRed, tile, badge = alertCount) {
+                            onAction(HomeAction.ALERTS)
+                        }
+                        repeat(3) { Spacer(tile) }
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -154,7 +167,7 @@ fun HomeScreen(
  * [scrolled] is read only inside graphicsLayer, so scrolling redraws without recomposing.
  */
 @Composable
-private fun Hero(dayPart: DayPart, scrolled: () -> Int, onBell: () -> Unit) {
+private fun Hero(dayPart: DayPart, scrolled: () -> Int) {
     Box(
         Modifier
             .fillMaxWidth()
@@ -194,7 +207,7 @@ private fun Hero(dayPart: DayPart, scrolled: () -> Int, onBell: () -> Unit) {
                     alpha = 1f - (y / (size.height * 2.5f)).coerceIn(0f, 1f)
                 }
                 .statusBarsPadding()
-                .padding(start = 24.dp, end = 12.dp, top = 20.dp),
+                .padding(start = 24.dp, end = 24.dp, top = 20.dp),
             verticalAlignment = Alignment.Top,
         ) {
             Column(Modifier.weight(1f)) {
@@ -207,14 +220,6 @@ private fun Hero(dayPart: DayPart, scrolled: () -> Int, onBell: () -> Unit) {
                     "Your journey companion",
                     style = TextStyle(fontSize = 18.sp, shadow = textShadow),
                     color = Color.White.copy(alpha = 0.92f),
-                )
-            }
-            IconButton(onClick = onBell) {
-                Icon(
-                    Icons.Rounded.NotificationsNone,
-                    contentDescription = "Notifications",
-                    tint = Color.White,
-                    modifier = Modifier.size(30.dp),
                 )
             }
         }
@@ -271,27 +276,43 @@ private fun ActionCard(
 }
 
 @Composable
-private fun QuickTool(label: String, icon: ImageVector, tint: Color, modifier: Modifier, onClick: () -> Unit) {
-    Column(
-        modifier
-            .aspectRatio(0.88f)
-            .clip(RoundedCornerShape(18.dp))
-            .background(tint.copy(alpha = 0.10f))
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(32.dp))
-        Spacer(Modifier.height(8.dp))
-        Text(
-            label,
-            textAlign = TextAlign.Center,
-            fontSize = 13.sp,
-            lineHeight = 16.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
+private fun QuickTool(label: String, icon: ImageVector, tint: Color, modifier: Modifier, badge: Int? = null, onClick: () -> Unit) {
+    Box(modifier.aspectRatio(0.88f)) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(18.dp))
+                .background(tint.copy(alpha = 0.10f))
+                .clickable(onClick = onClick)
+                .padding(vertical = 12.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(32.dp))
+            Spacer(Modifier.height(8.dp))
+            Text(
+                label,
+                textAlign = TextAlign.Center,
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+        }
+        badge?.let {
+            Text(
+                "$it",
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .clip(CircleShape)
+                    .background(tint)
+                    .padding(horizontal = 7.dp, vertical = 1.dp),
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 
